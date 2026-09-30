@@ -173,10 +173,37 @@ function addHypotheses(target) {
  if(i)target.nodes.push({id:'coverage_hypotheses_heading',type:'text',x:baseX,y:-170,width:2010,height:130,text:'# Частично — что можно сделать\nУ каждой карточки три варианта. Исходные карточки и их расположение сохранены. Выбираем гипотезы перед изменением сценария.'});
  return i;
 }
-if (process.argv.includes('--hypotheses')) {
- const targetPath=path.join(__dirname,'Доска — покрытие сцены 1.canvas');
+function inlineCoverage(target) {
+ const removed = new Set();
+ let partial = 0;
+ for (const detail of target.nodes.filter(n=>n.id.startsWith('coverage_detail_') && n.id!=='coverage_detail_heading')) {
+  const sourceId=detail.id.slice('coverage_detail_'.length);
+  const source=target.nodes.find(n=>n.id===sourceId);
+  if (!source) throw Error(`Missing original card ${sourceId}`);
+  const hypothesis=target.nodes.find(n=>n.id===`coverage_hypothesis_${sourceId}`);
+  const title=source.text.replace(/^\*\*[^\n]+\*\*\s*/, '').split('\n\n---\n')[0];
+  const titleStart=detail.text.indexOf(title);
+  const explanation=titleStart>=0?detail.text.slice(titleStart+title.length).trim():evidence[sourceId].proof;
+  const optionsStart=hypothesis?.text.indexOf('**Гипотеза 1:**') ?? -1;
+  const variants=optionsStart>=0?hypothesis.text.slice(optionsStart):'';
+  if(detail.color==='3' && !variants) throw Error(`Missing variants ${sourceId}`);
+  source.text=`${source.text.split('\n\n---\n')[0]}\n\n---\n\n**Почему ${detail.color==='3'?'частично':'так отмечено'}:**\n\n${explanation}${variants?'\n\n'+variants:''}`;
+  removed.add(detail.id);
+  if(hypothesis) removed.add(hypothesis.id);
+  if(detail.color==='3') partial++;
+ }
+ removed.add('coverage_detail_heading');
+ removed.add('coverage_hypotheses_heading');
+ target.nodes=target.nodes.filter(n=>!removed.has(n.id));
+ target.edges=target.edges.filter(e=>!removed.has(e.fromNode)&&!removed.has(e.toNode)&&!e.id.startsWith('coverage_link_'));
+ const legend=target.nodes.find(n=>n.id==='coverage_legend');
+ if(legend) legend.text=legend.text.replace('Изменены цвет и короткая отметка покрытия.', 'Объяснения и гипотезы находятся внутри карточек: прокрутите вниз.').replace('Пояснения и выводы — на этой же доске, справа от исходных групп.', 'Пояснения — внутри исходных карточек; общие выводы — на этой же доске.');
+ return partial;
+}
+if (process.argv.includes('--hypotheses') || process.argv.includes('--inline')) {
+ const targetPath=process.argv.includes('--canvas')?process.argv[process.argv.indexOf('--canvas')+1]:path.join(__dirname,'Доска — покрытие сцены 1.canvas');
  const target=JSON.parse(fs.readFileSync(targetPath,'utf8'));
- const added=addHypotheses(target);
+ const added=process.argv.includes('--inline')?inlineCoverage(target):addHypotheses(target);
  fs.writeFileSync(targetPath,JSON.stringify(target,null,'\t')+'\n');
  console.log(JSON.stringify({partialCards:added,hypotheses:added*3}));
  process.exit(0);
@@ -209,5 +236,6 @@ if (conclusions) {
  board.nodes.push({id:'coverage_conclusions',type:'text',x:right+1480,y:0,width:1400,height:2900,text:conclusions});
 }
 addHypotheses(board);
+inlineCoverage(board);
 fs.writeFileSync(path.join(__dirname, 'Доска — покрытие сцены 1.canvas'), JSON.stringify(board, null, '\t') + '\n');
 console.log(JSON.stringify({nodes:board.nodes.length,counts}));
