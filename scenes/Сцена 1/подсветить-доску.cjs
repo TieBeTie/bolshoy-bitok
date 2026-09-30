@@ -36,28 +36,32 @@ mark('n31 n32 n33 n115 n119 n147 n151', 'ЕЩЁ НЕТ', 'Деньги как ц
 const colors = { 'КАДР': '4', 'ГОЛОС': '6', 'ЧАСТИЧНО': '3', 'ЕЩЁ НЕТ': '5' };
 const statuses = { '4': 'утверждено', '3': 'гипотеза', '1': 'не решено', '6': 'вопрос' };
 const counts = {};
+const details = [];
 for (const node of board.nodes) {
   if (node.type !== 'text' || !node.text.startsWith('#') || node.id.startsWith('h') || /^(n[3-8]|ram_h|ref_h)$/.test(node.id)) continue;
   const entry = evidence[node.id] || { state: 'ЕЩЁ НЕТ', proof: 'В актуальном черновике первой сцены не раскрыто. Карточка может относиться к будущей сцене или разработке.' };
   const original = statuses[node.color] || 'без статуса';
   node.color = colors[entry.state];
-  node.text = `**${entry.state} · СЦЕНА 1**\n\n${node.text}\n\n---\n${entry.proof}\n\n*Статус исходной доски: ${original}.*`;
-  node.height = Math.max(node.height + 140, 340);
+  const title = node.text;
+  node.text = `**${entry.state}**\n\n${title}`;
+  if (evidence[node.id]) details.push({id:node.id,title,proof:entry.proof,original,state:entry.state});
   counts[entry.state] = (counts[entry.state] || 0) + 1;
 }
-// Растущие карточки раскладываем по исходным рядам; все ID и связи сохраняются.
-const rows = [...new Set(board.nodes.map(n => n.y))].sort((a,b) => a-b);
-const ymap = new Map(); let cursor = 0;
-for (const y of rows) { ymap.set(y, cursor); cursor += 460; }
-for (const node of board.nodes) {
-  const oldBottom = node.y + node.height;
-  const oldY = node.y;
-  node.y = ymap.get(oldY);
-  if (node.type === 'group') {
-    const end = rows.filter(y => y < oldBottom).at(-1);
-    node.height = ymap.get(end) - node.y + 460;
-  }
+// Координаты, размеры, группы и связи исходной доски остаются точными.
+board.nodes.push({id:'coverage_legend',type:'text',x:0,y:-650,width:1908,height:560,text:'# Сцена 1 — подсветка исходной доски\n\nВсе исходные карточки сохранены на прежних местах и с прежними размерами. Изменены цвет и короткая отметка покрытия.\n\nЗелёный — **КАДР**; фиолетовый — **ГОЛОС**; жёлтый — **ЧАСТИЧНО**; синий — **ЕЩЁ НЕТ**.\n\nОснование: покадровый черновик v16, 2:17 (30.09.2026). Сам монтаж и финальный звук сейчас не проверялись. «Ещё нет» не означает, что нужно добавлять в сцену 1.\n\nПояснения и выводы — на этой же доске, справа от исходных групп. Основная «Доска.canvas» — общая сюжетная доска; эта копия — её проверка по сцене 1.\n\n[[Сценарий — черновик]] — основание проверки.'});
+const right = Math.max(...board.nodes.filter(n=>n.id!=='coverage_legend').map(n=>n.x+n.width))+160;
+board.nodes.push({id:'coverage_detail_heading',type:'text',x:right,y:-160,width:1420,height:120,text:'# Почему карточки подсвечены\nНиже — основания проверки и исходный статус решений.'});
+for (let i=0;i<details.length;i++) {
+ const d=details[i];
+ board.nodes.push({id:`coverage_detail_${d.id}`,type:'text',x:right+(i%3)*480,y:Math.floor(i/3)*350,width:450,height:320,color:colors[d.state],text:`**${d.state} · ${d.id}**\n\n${d.title}\n\n${d.proof}\n\n*Исходный статус: ${d.original}.*`});
 }
-board.nodes.push({id:'coverage_legend',type:'text',x:0,y:-820,width:1908,height:720,text:'# Сцена 1 — покрытие доски\n\nСнимок 30.09.2026. Основание: «Сценарий — черновик», монтаж v16 (2:17), кадры 1.1–6.3. Само видео и финальный звук не просмотрены.\n\n**Зелёный — КАДР:** предусмотрено изображением/действием.\n**Фиолетовый — ГОЛОС:** прямо сообщается закадровым текстом.\n**Жёлтый — ЧАСТИЧНО:** есть предпосылка, часть карточки или расхождение версий.\n**Синий — ЕЩЁ НЕТ:** в сцене 1 не раскрыто; не означает, что нужно добавлять сюда.\n\nЦвет обозначает покрытие, прежний статус решения указан внутри карточки. Это отдельная копия, основная доска сохраняет свои цвета.\n\n[[Покрытие доски — Сцена 1]] — выводы и следующий шаг.\n[[Сценарий — черновик]] — основание проверки.'});
+const notePath=path.join(__dirname,'Покрытие доски — Сцена 1.md');
+const previous=path.join(__dirname,'Доска — покрытие сцены 1.canvas');
+let conclusions=fs.existsSync(notePath)?fs.readFileSync(notePath,'utf8'):'';
+if (!conclusions && fs.existsSync(previous)) conclusions=JSON.parse(fs.readFileSync(previous,'utf8')).nodes.find(n=>n.id==='coverage_conclusions')?.text || '';
+if (conclusions) {
+ conclusions=conclusions.replace(/^\[\[Доска — покрытие сцены 1.canvas\|.*\]\]\s*$/m,'').replace(/^.*Для обновления:.*$/m,'Проверка находится целиком в Canvas. Для обновления снимка используется «подсветить-доску.cjs».');
+ board.nodes.push({id:'coverage_conclusions',type:'text',x:right+1480,y:0,width:1400,height:2900,text:conclusions});
+}
 fs.writeFileSync(path.join(__dirname, 'Доска — покрытие сцены 1.canvas'), JSON.stringify(board, null, '\t') + '\n');
 console.log(JSON.stringify({nodes:board.nodes.length,counts}));
